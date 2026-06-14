@@ -93,10 +93,17 @@ router.post("/submit", async (req, res) => {
 // GET /api/exam/sessions
 router.get("/sessions", async (req, res) => {
   try {
-    const sessions = await Session.find({}).sort({ createdAt: -1 }).limit(50);
+    const sessions = await Session.find({})
+      .sort({ createdAt: -1 })
+      .limit(50);
+
     return res.json(sessions);
   } catch (err) {
-    return res.status(500).json({ error: "Failed to fetch sessions" });
+    console.error("[SESSIONS ERROR]", err);
+    return res.status(500).json({
+      error: "Failed to fetch sessions",
+      message: err.message
+    });
   }
 });
 
