@@ -4,7 +4,7 @@ const crypto = require("crypto");
 const axios = require("axios");
 const Session = require("../models/Session");
 
-const ANALYZER_URL = process.env.ANALYZER_URL || "http://localhost:8000";
+const ANALYZER_URL = process.env.ANALYZER_URL || "https://exam-trace-m8sr.onrender.com";
 
 // --- Merkle Tree (mirrors client logic) ---
 function hashLeaf(event) {
