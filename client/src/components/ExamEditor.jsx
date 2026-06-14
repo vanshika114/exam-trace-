@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useKeystroke } from "../hooks/useKeystroke";
 import IntegrityChart from "./IntegrityChart";
+import FaceMonitor from "./FaceMonitor";
+import { analyzePaste, calculateTypingSpeed } from "../utils/pasteAnalyzer";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -10,14 +12,22 @@ function generateSessionId() {
 
 export default function ExamEditor({ candidateName = "Candidate", examId = "exam_001" }) {
   const [code, setCode] = useState("# Write your solution here\n");
-  const [keystrokes, setKeystrokes] = useState([]);  // mirrored for chart
+  const [keystrokes, setKeystrokes] = useState([]);
   const [tabWarnings, setTabWarnings] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [result, setResult] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [camStatus, setCamStatus] = useState("loading");
+  const [faceViolationCount, setFaceViolationCount] = useState(0);
+  const [pasteWarnings, setPasteWarnings] = useState(0);
 
   const sessionId = useRef(generateSessionId());
   const keystrokeBuffer = useRef([]);
+  const faceViolationsRef = useRef([]);
+  
+  // ── NEW: Paste tracking ──
+  const pasteEventsRef = useRef([]);
+  const lastPasteTimeRef = useRef(null);
 
   const onTabExit = useCallback(({ count }) => {
     setTabWarnings(count);
@@ -25,7 +35,7 @@ export default function ExamEditor({ candidateName = "Candidate", examId = "exam
 
   const { record, handlePaste, getSubmitPayload } = useKeystroke({ onTabExit });
 
-  // Sync ref → state every 2s for IntegrityChart (avoids re-render on every keystroke)
+  // Sync keystroke buffer → state every 2s for IntegrityChart
   useEffect(() => {
     const interval = setInterval(() => {
       setKeystrokes([...keystrokeBuffer.current]);
@@ -45,14 +55,77 @@ export default function ExamEditor({ candidateName = "Candidate", examId = "exam
     record(e.key, "keyup");
   };
 
-  const handlePasteEvent = (e) => {
+  // ── ENHANCED: Paste event with anomaly detection ──
+  const handlePasteEvent = useCallback(async (e) => {
     handlePaste();
-  };
+
+    try {
+      const pastedContent = (e.clipboardData || window.clipboardData).getData("text");
+      const timestamp = Date.now();
+
+      if (!pastedContent) return;
+
+      // Calculate typing speeds (before/after context)
+      const beforePasteSpeed = calculateTypingSpeed(keystrokeBuffer.current, 5000);
+      
+      // Get context for analysis
+      const typingContext = {
+        beforePasteSpeed,
+        afterPasteSpeed: 0, // Will be calculated after
+        previousContent: code,
+        recentTypingSpeed: beforePasteSpeed,
+      };
+
+      // Analyze paste for anomalies
+      const pasteAnalysis = analyzePaste(pastedContent, typingContext);
+
+      // Create paste event record
+      const pasteEvent = {
+        timestamp,
+        pastedLength: pastedContent.length,
+        pastedContent: pastedContent.substring(0, 1000), // Store first 1000 chars only
+        anomalyScore: pasteAnalysis.anomalyScore,
+        anomalyFlags: pasteAnalysis.flags,
+        isSuspicious: pasteAnalysis.isSuspicious,
+        typingSpeedBefore: beforePasteSpeed,
+        keystrokesAroundPaste: keystrokeBuffer.current.filter(
+          (k) => k.timestamp > timestamp - 2000
+        ).length,
+      };
+
+      pasteEventsRef.current.push(pasteEvent);
+      lastPasteTimeRef.current = timestamp;
+
+      if (pasteAnalysis.isSuspicious) {
+        setPasteWarnings((p) => p + 1);
+      }
+
+      console.log("📋 Paste detected:", {
+        length: pastedContent.length,
+        anomalyScore: pasteAnalysis.anomalyScore,
+        flags: pasteAnalysis.flags,
+      });
+    } catch (err) {
+      console.error("Paste analysis error:", err);
+    }
+  }, [code]);
+
+  const handleFaceViolation = useCallback((type, timestamp) => {
+    faceViolationsRef.current.push({ type, timestamp });
+    setFaceViolationCount((c) => c + 1);
+  }, []);
 
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
       const payload = await getSubmitPayload();
+      
+      // Calculate overall paste suspicion score
+      const pasteSuspicionScore = pasteEventsRef.current.length > 0
+        ? pasteEventsRef.current.reduce((sum, p) => sum + p.anomalyScore, 0) /
+          pasteEventsRef.current.length
+        : 0;
+
       const res = await fetch(`${API}/api/exam/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,9 +134,23 @@ export default function ExamEditor({ candidateName = "Candidate", examId = "exam
           candidateName,
           examId,
           code,
+          
+          // Face violations
+          faceViolations: faceViolationsRef.current,
+          faceViolationCount: faceViolationsRef.current.length,
+          
+          // ── NEW: Paste events with anomaly data ──
+          pasteEvents: pasteEventsRef.current,
+          pasteCount: pasteEventsRef.current.length,
+          suspiciousPasteCount: pasteEventsRef.current.filter(
+            (p) => p.isSuspicious
+          ).length,
+          pasteSuspicionScore,
+          
           ...payload,
         }),
       });
+      
       const data = await res.json();
       setResult(data);
       setSubmitted(true);
@@ -87,6 +174,25 @@ export default function ExamEditor({ candidateName = "Candidate", examId = "exam
           <p>Verdict: <strong style={{ color: verdictColor(result.finalVerdict) }}>
             {result.finalVerdict}
           </strong></p>
+          
+          {result.faceViolationCount > 0 && (
+            <p>Face Violations: <strong style={{ color: "#ef4444" }}>
+              {result.faceViolationCount}
+            </strong></p>
+          )}
+          
+          {/* ── NEW: Display paste analysis ── */}
+          {result.pasteCount > 0 && (
+            <p>Paste Events: <strong style={{ color: result.suspiciousPasteCount > 0 ? "#ef4444" : "#f59e0b" }}>
+              {result.pasteCount} ({result.suspiciousPasteCount} suspicious)
+            </strong></p>
+          )}
+          
+          {result.pasteSuspicionScore > 0.45 && (
+            <p>Paste Suspicion: <strong style={{ color: "#ef4444" }}>
+              {(result.pasteSuspicionScore * 100).toFixed(1)}% 🚩
+            </strong></p>
+          )}
         </div>
       </div>
     );
@@ -97,33 +203,102 @@ export default function ExamEditor({ candidateName = "Candidate", examId = "exam
       <header style={styles.header}>
         <span style={styles.logo}>ExamGuard</span>
         <span style={styles.meta}>{candidateName} · {examId}</span>
-        {tabWarnings > 0 && (
-          <span style={styles.warning}>⚠ Tab exits: {tabWarnings}</span>
-        )}
+        <div style={styles.badges}>
+          {tabWarnings > 0 && (
+            <span style={styles.warningBadge}>⚠ Tab exits: {tabWarnings}</span>
+          )}
+          {faceViolationCount > 0 && (
+            <span style={styles.warningBadge}>👁 Face alerts: {faceViolationCount}</span>
+          )}
+          {/* ── NEW: Paste warning badge ── */}
+          {pasteWarnings > 0 && (
+            <span style={styles.warningBadge}>📋 Suspicious pastes: {pasteWarnings}</span>
+          )}
+        </div>
       </header>
 
-      <div style={styles.editorWrap}>
-        <textarea
-          style={styles.editor}
-          value={code}
-          onChange={e => setCode(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onKeyUp={handleKeyUp}
-          onPaste={handlePasteEvent}
-          spellCheck={false}
-          autoCorrect="off"
-          autoCapitalize="off"
-          placeholder="Write your code here..."
-        />
-      </div>
+      {/* Main two-column layout */}
+      <div style={styles.main}>
+        <div style={styles.editorCol}>
+          <textarea
+            style={styles.editor}
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onKeyUp={handleKeyUp}
+            onPaste={handlePasteEvent}
+            spellCheck="false"
+            autoCorrect="off"
+            autoCapitalize="off"
+            placeholder="Write your code here..."
+          />
 
-      <div style={styles.chartSection}>
-        <p style={styles.chartLabel}>Live Keystroke Analysis</p>
-        <IntegrityChart keystrokes={keystrokes} />
+          <div style={styles.chartSection}>
+            <p style={styles.chartLabel}>Live Keystroke Analysis</p>
+            <IntegrityChart keystrokes={keystrokes} />
+          </div>
+        </div>
+
+        {/* Webcam panel */}
+        <div style={styles.camCol}>
+          <p style={styles.camLabel}>Proctoring Camera</p>
+          <FaceMonitor
+            onViolation={handleFaceViolation}
+            onStatusChange={setCamStatus}
+          />
+
+          {/* Face violation log */}
+          {faceViolationCount > 0 && (
+            <div style={styles.violationLog}>
+              <p style={styles.violationTitle}>Recent Alerts</p>
+              {faceViolationsRef.current.slice(-5).reverse().map((v, i) => (
+                <div key={i} style={styles.violationRow}>
+                  <span style={styles.violationType(v.type)}>
+                    {v.type === "NO_FACE" && "No face"}
+                    {v.type === "MULTI_FACE" && "Multiple faces"}
+                    {v.type === "LOOK_AWAY" && "Look away"}
+                  </span>
+                  <span style={styles.violationTime}>
+                    {new Date(v.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {/* ── NEW: Paste events log ── */}
+          {pasteEventsRef.current.length > 0 && (
+            <div style={styles.pasteLog}>
+              <p style={styles.pasteTitle}>📋 Paste History</p>
+              {pasteEventsRef.current.slice(-3).reverse().map((p, i) => (
+                <div key={i} style={{
+                  ...styles.pasteRow,
+                  background: p.isSuspicious ? "#ef444422" : "#38bdf822",
+                  borderLeft: `3px solid ${p.isSuspicious ? "#ef4444" : "#38bdf8"}`,
+                }}>
+                  <div>
+                    <span style={{ fontSize: 11, fontWeight: 600 }}>
+                      {p.pastedLength} chars
+                    </span>
+                    <span style={{ fontSize: 10, color: "#64748b", marginLeft: 8 }}>
+                      Score: {(p.anomalyScore * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <span style={styles.pasteTime}>
+                    {new Date(p.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={styles.footer}>
-        <span style={styles.counter}>{keystrokes.filter(e => e.type === "keydown").length} keystrokes</span>
+        <span style={styles.counter}>
+          {keystrokes.filter((e) => e.type === "keydown").length} keystrokes · 
+          {pasteEventsRef.current.length} pastes
+        </span>
         <button
           style={{ ...styles.btn, opacity: submitting ? 0.6 : 1 }}
           onClick={handleSubmit}
@@ -140,19 +315,87 @@ function verdictColor(v) {
   return { CLEAN: "#22c55e", SUSPICIOUS: "#f59e0b", FLAGGED: "#ef4444", PENDING: "#94a3b8" }[v] || "#fff";
 }
 
+const VIOLATION_COLORS = {
+  NO_FACE: "#ef4444",
+  MULTI_FACE: "#f59e0b",
+  LOOK_AWAY: "#fb923c",
+};
+
 const styles = {
-  container: { background: "#0f172a", minHeight: "100vh", color: "#e2e8f0", fontFamily: "monospace", display: "flex", flexDirection: "column" },
-  header: { display: "flex", alignItems: "center", gap: 16, padding: "12px 24px", borderBottom: "1px solid #1e293b" },
+  container: {
+    background: "#0f172a", minHeight: "100vh", color: "#e2e8f0",
+    fontFamily: "monospace", display: "flex", flexDirection: "column",
+  },
+  header: {
+    display: "flex", alignItems: "center", gap: 16,
+    padding: "12px 24px", borderBottom: "1px solid #1e293b",
+  },
   logo: { fontWeight: 700, fontSize: 18, color: "#38bdf8" },
   meta: { color: "#64748b", fontSize: 13 },
-  warning: { marginLeft: "auto", color: "#f59e0b", fontWeight: 600 },
-  editorWrap: { flex: 1, padding: "0 24px" },
-  editor: { width: "100%", minHeight: 320, background: "#1e293b", color: "#e2e8f0", border: "1px solid #334155", borderRadius: 8, padding: 16, fontSize: 14, lineHeight: 1.6, resize: "vertical", outline: "none", fontFamily: "monospace", boxSizing: "border-box", marginTop: 16 },
-  chartSection: { padding: "12px 24px" },
+  badges: { marginLeft: "auto", display: "flex", gap: 10 },
+  warningBadge: { color: "#f59e0b", fontWeight: 600, fontSize: 13 },
+  main: { display: "flex", flex: 1, gap: 0 },
+  editorCol: { flex: 1, padding: "16px 24px", display: "flex", flexDirection: "column" },
+  editor: {
+    flex: 1, minHeight: 300,
+    background: "#1e293b", color: "#e2e8f0",
+    border: "1px solid #334155", borderRadius: 8,
+    padding: 16, fontSize: 14, lineHeight: 1.6,
+    resize: "vertical", outline: "none",
+    fontFamily: "monospace", boxSizing: "border-box",
+  },
+  chartSection: { paddingTop: 12 },
   chartLabel: { fontSize: 11, color: "#475569", marginBottom: 6 },
-  footer: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 24px", borderTop: "1px solid #1e293b" },
+
+  camCol: {
+    width: 340, padding: "16px 16px 16px 0",
+    display: "flex", flexDirection: "column", gap: 12,
+    borderLeft: "1px solid #1e293b",
+    paddingLeft: 16,
+    overflowY: "auto",
+    maxHeight: "calc(100vh - 100px)",
+  },
+  camLabel: { fontSize: 11, color: "#475569", textTransform: "uppercase", margin: 0 },
+
+  violationLog: {
+    background: "#1e293b", borderRadius: 8, padding: 12,
+  },
+  violationTitle: { fontSize: 10, color: "#475569", textTransform: "uppercase", margin: "0 0 8px" },
+  violationRow: {
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+    marginBottom: 4,
+  },
+  violationType: (type) => ({
+    fontSize: 11, fontWeight: 600,
+    color: VIOLATION_COLORS[type] || "#e2e8f0",
+  }),
+  violationTime: { fontSize: 10, color: "#64748b" },
+
+  pasteLog: {
+    background: "#1e293b", borderRadius: 8, padding: 12,
+    marginTop: 8,
+  },
+  pasteTitle: { fontSize: 10, color: "#475569", textTransform: "uppercase", margin: "0 0 8px" },
+  pasteRow: {
+    padding: 8, borderRadius: 4, marginBottom: 6,
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+    fontSize: 11,
+  },
+  pasteTime: { fontSize: 10, color: "#64748b" },
+
+  footer: {
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+    padding: "12px 24px", borderTop: "1px solid #1e293b",
+  },
   counter: { fontSize: 12, color: "#475569" },
-  btn: { background: "#38bdf8", color: "#0f172a", border: "none", borderRadius: 6, padding: "10px 28px", fontWeight: 700, fontSize: 14, cursor: "pointer" },
-  resultBox: { margin: "80px auto", maxWidth: 480, background: "#1e293b", borderRadius: 12, padding: 32 },
+  btn: {
+    background: "#38bdf8", color: "#0f172a", border: "none",
+    borderRadius: 6, padding: "10px 28px",
+    fontWeight: 700, fontSize: 14, cursor: "pointer",
+  },
+  resultBox: {
+    margin: "80px auto", maxWidth: 480,
+    background: "#1e293b", borderRadius: 12, padding: 32,
+  },
   resultTitle: { marginTop: 0, color: "#38bdf8" },
 };

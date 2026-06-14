@@ -1,12 +1,550 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ExamGuard</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ExamGuard — Exam Integrity You Can Prove</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #060910;
+      --surface: #0d1117;
+      --surface2: #161b22;
+      --border: rgba(255,255,255,0.08);
+      --text: #e6edf3;
+      --muted: #7d8590;
+      --accent: #38bdf8;
+      --accent2: #818cf8;
+      --green: #22c55e;
+      --amber: #f59e0b;
+      --red: #ef4444;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    #beams-canvas {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 40px;
+      height: 60px;
+      background: rgba(6,9,16,0.7);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo { font-size: 18px; font-weight: 700; color: var(--accent); letter-spacing: -0.5px; }
+    .nav-links { display: flex; gap: 32px; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: 14px; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--text); }
+
+    .nav-cta {
+      background: var(--accent);
+      color: #0f172a;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .nav-cta:hover { opacity: 0.85; }
+
+    section { position: relative; z-index: 1; }
+
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 120px 24px 80px;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(56,189,248,0.1);
+      border: 1px solid rgba(56,189,248,0.25);
+      border-radius: 999px;
+      padding: 6px 16px;
+      font-size: 13px;
+      color: var(--accent);
+      margin-bottom: 32px;
+    }
+
+    .hero-badge .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.8); }
+    }
+
+    .hero h1 {
+      font-size: clamp(36px, 6vw, 72px);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -2px;
+      max-width: 900px;
+      margin-bottom: 24px;
+    }
+
+    .hero h1 .accent { color: var(--accent); }
+    .hero h1 .accent2 { color: var(--accent2); }
+
+    .hero p {
+      font-size: clamp(16px, 2vw, 20px);
+      color: var(--muted);
+      max-width: 580px;
+      margin-bottom: 48px;
+      line-height: 1.7;
+    }
+
+    .hero-btns { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #0f172a;
+      border: none;
+      border-radius: 10px;
+      padding: 14px 32px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.2s, transform 0.1s;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 32px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: border-color 0.2s, background 0.2s;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-secondary:hover { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.04); }
+
+    .proof-strip { padding: 0 24px 80px; display: flex; justify-content: center; }
+
+    .proof-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 32px;
+      max-width: 760px;
+      width: 100%;
+    }
+
+    .proof-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 16px; }
+
+    .proof-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; font-size: 13px; }
+
+    .proof-tag { font-size: 11px; padding: 3px 10px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+    .proof-tag.client { background: rgba(129,140,248,0.15); color: var(--accent2); }
+    .proof-tag.server { background: rgba(56,189,248,0.12); color: var(--accent); }
+
+    .proof-hash { font-family: 'Consolas', 'SF Mono', monospace; font-size: 12px; color: var(--muted); word-break: break-all; }
+
+    .proof-match {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 16px; padding-top: 16px;
+      border-top: 1px solid var(--border); font-size: 13px;
+    }
+
+    .match-icon {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: rgba(34,197,94,0.15); color: var(--green);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700;
+    }
+
+    .how { padding: 100px 24px; max-width: 1100px; margin: 0 auto; }
+
+    .section-eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: var(--accent); margin-bottom: 12px; text-align: center; }
+    .section-title { font-size: clamp(28px, 4vw, 44px); font-weight: 700; text-align: center; letter-spacing: -1px; margin-bottom: 16px; }
+    .section-sub { font-size: 16px; color: var(--muted); text-align: center; max-width: 520px; margin: 0 auto 72px; }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 2px;
+      background: var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .step { background: var(--surface); padding: 40px 32px; position: relative; }
+    .step-num { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: 1px; margin-bottom: 20px; font-family: 'Consolas', monospace; }
+    .step h3 { font-size: 18px; font-weight: 700; margin-bottom: 12px; letter-spacing: -0.3px; }
+    .step p { font-size: 14px; color: var(--muted); line-height: 1.7; }
+    .step-icon { width: 40px; height: 40px; border-radius: 10px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+
+    .features { padding: 100px 24px; max-width: 1100px; margin: 0 auto; }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+      margin-top: 56px;
+    }
+
+    .feature-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 32px; transition: border-color 0.2s; }
+    .feature-card:hover { border-color: rgba(56,189,248,0.3); }
+    .feature-icon { width: 44px; height: 44px; border-radius: 12px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+    .feature-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
+    .feature-card p { font-size: 14px; color: var(--muted); line-height: 1.7; }
+
+    .stats { padding: 80px 24px; max-width: 900px; margin: 0 auto; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 2px;
+      background: var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    .stat { background: var(--surface); padding: 40px 24px; text-align: center; }
+
+    .stat-num {
+      font-size: 40px; font-weight: 800; letter-spacing: -2px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; display: block; margin-bottom: 8px;
+    }
+
+    .stat-label { font-size: 13px; color: var(--muted); }
+
+    .stack { padding: 80px 24px; text-align: center; }
+    .stack-label { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 32px; }
+    .stack-pills { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    .pill { background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 8px 20px; font-size: 13px; font-weight: 500; color: var(--muted); transition: color 0.2s, border-color 0.2s; }
+    .pill:hover { color: var(--text); border-color: rgba(255,255,255,0.15); }
+
+    .cta-section { padding: 120px 24px; text-align: center; }
+    .cta-inner { max-width: 600px; margin: 0 auto; }
+    .cta-section h2 { font-size: clamp(28px, 4vw, 48px); font-weight: 800; letter-spacing: -1.5px; margin-bottom: 20px; }
+    .cta-section p { font-size: 16px; color: var(--muted); margin-bottom: 40px; }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 40px;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 13px; color: var(--muted);
+    }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+
+    .verdict-demo { padding: 80px 24px; max-width: 900px; margin: 0 auto; }
+    .verdict-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 48px; justify-content: center; }
+    .verdict-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px 28px; min-width: 180px; text-align: center; }
+    .verdict-badge { display: inline-block; padding: 5px 18px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 1px; margin-bottom: 12px; }
+    .verdict-badge.clean { background: rgba(34,197,94,0.15); color: var(--green); }
+    .verdict-badge.suspicious { background: rgba(245,158,11,0.15); color: var(--amber); }
+    .verdict-badge.flagged { background: rgba(239,68,68,0.15); color: var(--red); }
+    .verdict-card p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  </style>
+</head>
+<body>
+
+<canvas id="beams-canvas"></canvas>
+
+<nav>
+  <span class="nav-logo">ExamGuard</span>
+  <div class="nav-links">
+    <a href="#how">How it works</a>
+    <a href="#features">Features</a>
+    <a href="#stack">Stack</a>
+  </div>
+  <a href="/app.html" class="nav-cta">Try Demo →</a>
+</nav>
+
+<section class="hero">
+  <div class="hero-badge">
+    <span class="dot"></span>
+    Cryptographically verified exam integrity
+  </div>
+  <h1>
+    Exam integrity<br>
+    you can <span class="accent">prove</span>,<br>
+    not just <span class="accent2">claim</span>
+  </h1>
+  <p>
+    Every keystroke is Merkle-hashed client-side. The server recomputes the root.
+    Any tampering — any at all — breaks the proof. No trust required.
+  </p>
+  <div class="hero-btns">
+    <a href="/app.html" class="btn-primary">Open Exam Editor →</a>
+    <a href="/app.html#judge" class="btn-secondary">Judge Dashboard</a>
+  </div>
+</section>
+
+<div class="proof-strip">
+  <div class="proof-card">
+    <div class="proof-label">Live Merkle Proof — last submission</div>
+    <div class="proof-row">
+      <span class="proof-tag client">Client</span>
+      <span class="proof-hash">f70f5e92a0f2d26c1133bfd3e2f87f0d011ac7e670126356c2eb83c3f8adba55</span>
+    </div>
+    <div class="proof-row">
+      <span class="proof-tag server">Server</span>
+      <span class="proof-hash">f70f5e92a0f2d26c1133bfd3e2f87f0d011ac7e670126356c2eb83c3f8adba55</span>
+    </div>
+    <div class="proof-match">
+      <div class="match-icon">✓</div>
+      <span style="color: #22c55e; font-weight: 600; font-size: 13px;">Roots match — keystroke log cryptographically intact</span>
+    </div>
+  </div>
+</div>
+
+<section class="how" id="how">
+  <p class="section-eyebrow">How it works</p>
+  <h2 class="section-title">Three layers of verification</h2>
+  <p class="section-sub">Not just logs — proof. Every submission is forensically traceable from first keystroke to final verdict.</p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">01 / CLIENT</div>
+      <div class="step-icon" style="background: rgba(129,140,248,0.1);">🔑</div>
+      <h3>Keystroke Merkle tree</h3>
+      <p>Every keydown and keyup event is timestamped and SHA-256 hashed. Leaves combine into a Merkle root — a single fingerprint of the entire typing session. Computed in the browser using Web Crypto API.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">02 / SERVER</div>
+      <div class="step-icon" style="background: rgba(56,189,248,0.1);">🔒</div>
+      <h3>Server-side root validation</h3>
+      <p>Express recomputes the Merkle root independently from the submitted keystroke log. If the roots don't match — even one altered timestamp — the session is flagged as tampered before analysis begins.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">03 / ANALYZER</div>
+      <div class="step-icon" style="background: rgba(34,197,94,0.1);">🧠</div>
+      <h3>Behavioral + AST analysis</h3>
+      <p>Python FastAPI scores hold times, inter-key gaps, and burst patterns. A separate AST difflib pass compares submitted code against known solution structures to detect paste-from-outside events.</p>
+    </div>
+  </div>
+</section>
+
+<section class="features" id="features">
+  <p class="section-eyebrow">Features</p>
+  <h2 class="section-title">Everything the judge needs</h2>
+  <p class="section-sub">Built for exam administrators who need to make defensible decisions, not guesses.</p>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="feature-icon" style="background: rgba(56,189,248,0.1);">🌳</div>
+      <h3>Merkle integrity verification</h3>
+      <p>Client and server Merkle roots are displayed side-by-side on the judge dashboard. A mismatch is automatic grounds for FLAGGED status — no human judgment needed.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background: rgba(129,140,248,0.1);">📊</div>
+      <h3>Live keystroke chart</h3>
+      <p>Inter-key gap chart renders in real time during the exam. Red spikes mark sub-30ms bursts — statistically impossible for human typing, consistent with injected keystrokes.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background: rgba(34,197,94,0.1);">🔍</div>
+      <h3>AST similarity scoring</h3>
+      <p>Submitted code is parsed into an AST node histogram and compared against known solutions via cosine similarity. 60%+ match triggers SUSPICIOUS; 85%+ triggers FLAGGED.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background: rgba(245,158,11,0.1);">👁</div>
+      <h3>Tab exit detection</h3>
+      <p>Every time the candidate switches away from the exam tab, it's logged with a timestamp. The count is displayed on the editor in real time and stored in the session record.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background: rgba(239,68,68,0.1);">📋</div>
+      <h3>Paste event tracking</h3>
+      <p>Paste events are intercepted and counted separately from normal typing. Combined with the keystroke burst analyzer, this catches copy-paste even when candidates paste character by character.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background: rgba(56,189,248,0.1);">⚖️</div>
+      <h3>Three-tier verdicts</h3>
+      <p>CLEAN, SUSPICIOUS, and FLAGGED — each with the exact metrics that triggered the verdict. Judges see anomaly score, hold time mean/std, IKG distribution, and AST similarity in one view.</p>
+    </div>
+  </div>
+</section>
+
+<section class="verdict-demo">
+  <p class="section-eyebrow" style="text-align:center;">Verdicts</p>
+  <h2 class="section-title">Clear decisions. Documented reasons.</h2>
+  <div class="verdict-row">
+    <div class="verdict-card">
+      <div class="verdict-badge clean">CLEAN</div>
+      <p>Normal hold times, consistent IKG, low anomaly score, Merkle valid</p>
+    </div>
+    <div class="verdict-card">
+      <div class="verdict-badge suspicious">SUSPICIOUS</div>
+      <p>Anomaly score &gt;0.45 or AST similarity &gt;60% — warrants review</p>
+    </div>
+    <div class="verdict-card">
+      <div class="verdict-badge flagged">FLAGGED</div>
+      <p>Merkle mismatch, anomaly &gt;0.75, or AST similarity &gt;85%</p>
+    </div>
+  </div>
+</section>
+
+<section class="stats">
+  <div class="stats-grid">
+    <div class="stat">
+      <span class="stat-num">SHA-256</span>
+      <span class="stat-label">Hash algorithm per leaf</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num">3</span>
+      <span class="stat-label">Independent services</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num">&lt;30ms</span>
+      <span class="stat-label">Burst detection threshold</span>
+    </div>
+    <div class="stat">
+      <span class="stat-num">0</span>
+      <span class="stat-label">Trust assumptions</span>
+    </div>
+  </div>
+</section>
+
+<section class="stack" id="stack">
+  <p class="stack-label">Built with</p>
+  <div class="stack-pills">
+    <span class="pill">React 18</span>
+    <span class="pill">Web Crypto API</span>
+    <span class="pill">Vite</span>
+    <span class="pill">Express.js</span>
+    <span class="pill">MongoDB</span>
+    <span class="pill">Mongoose</span>
+    <span class="pill">FastAPI</span>
+    <span class="pill">Python 3.11</span>
+    <span class="pill">Uvicorn</span>
+    <span class="pill">difflib</span>
+    <span class="pill">ast module</span>
+    <span class="pill">Docker</span>
+  </div>
+</section>
+
+<section class="cta-section">
+  <div class="cta-inner">
+    <h2>Try it right now</h2>
+    <p>Open the exam editor, type something, switch a tab, then submit. Check the judge dashboard — your Merkle root will be waiting.</p>
+    <div class="hero-btns">
+      <a href="/app.html" class="btn-primary">Open Exam Editor →</a>
+      <a href="/app.html#judge" class="btn-secondary">Judge Dashboard</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <span class="nav-logo">ExamGuard</span>
+  <span>Cryptographic exam integrity system</span>
+  <span>React · Express · FastAPI · MongoDB</span>
+</footer>
+
+<script>
+(function() {
+  const canvas = document.getElementById('beams-canvas');
+  const ctx = canvas.getContext('2d');
+  let W, H, beams;
+
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+
+  function randomBetween(a, b) { return a + Math.random() * (b - a); }
+
+  function makeBeam() {
+    const angle = randomBetween(20, 70) * Math.PI / 180;
+    const startX = randomBetween(-W * 0.3, W * 1.1);
+    const width = randomBetween(60, 220);
+    const speed = randomBetween(0.15, 0.55);
+    const hue = Math.random() < 0.5 ? randomBetween(195, 215) : randomBetween(250, 270);
+    const alpha = randomBetween(0.04, 0.13);
+    const length = randomBetween(H * 0.6, H * 1.6);
+    return { startX, width, speed, hue, alpha, length, angle, offset: randomBetween(0, H) };
+  }
+
+  function initBeams() {
+    beams = [];
+    const count = Math.min(14, Math.floor(W / 110));
+    for (let i = 0; i < count; i++) beams.push(makeBeam());
+  }
+
+  function drawBeam(b) {
+    ctx.save();
+    ctx.translate(b.startX, -b.offset % H);
+    const cos = Math.cos(b.angle), sin = Math.sin(b.angle);
+    const x0 = 0, y0 = 0, x1 = cos * b.length, y1 = sin * b.length;
+    const nx = -sin, ny = cos;
+    const grad = ctx.createLinearGradient(
+      x0 - nx * b.width / 2, y0 - ny * b.width / 2,
+      x0 + nx * b.width / 2, y0 + ny * b.width / 2
+    );
+    grad.addColorStop(0, `hsla(${b.hue}, 90%, 65%, 0)`);
+    grad.addColorStop(0.4, `hsla(${b.hue}, 90%, 65%, ${b.alpha})`);
+    grad.addColorStop(0.5, `hsla(${b.hue}, 90%, 70%, ${b.alpha * 1.4})`);
+    grad.addColorStop(0.6, `hsla(${b.hue}, 90%, 65%, ${b.alpha})`);
+    grad.addColorStop(1, `hsla(${b.hue}, 90%, 65%, 0)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(x0 - nx * b.width / 2, y0 - ny * b.width / 2);
+    ctx.lineTo(x0 + nx * b.width / 2, y0 + ny * b.width / 2);
+    ctx.lineTo(x1 + nx * b.width / 2, y1 + ny * b.width / 2);
+    ctx.lineTo(x1 - nx * b.width / 2, y1 - ny * b.width / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function tick() {
+    ctx.clearRect(0, 0, W, H);
+    for (const b of beams) {
+      b.offset += b.speed;
+      if (b.offset > H * 2) { Object.assign(b, makeBeam()); b.offset = 0; }
+      drawBeam(b);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  window.addEventListener('resize', () => { resize(); initBeams(); });
+  resize();
+  initBeams();
+  tick();
+})();
+</script>
+
+</body>
 </html>
