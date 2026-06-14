@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useKeystroke } from "../hooks/useKeystroke";
 import IntegrityChart from "./IntegrityChart";
 import FaceMonitor from "./FaceMonitor";
-import { analyzePaste, calculateTypingSpeed } from "../utils/pasteAnalyzer";
+import { analyzePaste, calculateTypingSpeed } from "../utilis/pasteAnalyzer";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
