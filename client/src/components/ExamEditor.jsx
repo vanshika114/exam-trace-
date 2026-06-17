@@ -1,8 +1,13 @@
+import { QRCodeCanvas } from "qrcode.react";
+import { generateMonitoringQRCode } from "../utilis/qrcodegenerator";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useKeystroke } from "../hooks/useKeystroke";
+import VoiceMonitor from "./VoiceMonitor";
+import { useVoiceDetector } from "../hooks/useVoiceDetector";
 import IntegrityChart from "./IntegrityChart";
 import FaceMonitor from "./FaceMonitor";
 import { analyzePaste, calculateTypingSpeed } from "../utilis/pasteAnalyzer";
+import MobileMonitor from "./MobileMonitor";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -14,6 +19,8 @@ export default function ExamEditor({ candidateName = "Candidate", examId = "exam
   const [code, setCode] = useState("# Write your solution here\n");
   const [keystrokes, setKeystrokes] = useState([]);
   const [tabWarnings, setTabWarnings] = useState(0);
+  const [voiceWarnings, setVoiceWarnings] = useState(0);
+  const voiceViolationsRef = useRef([]);
   const [submitted, setSubmitted] = useState(false);
   const [result, setResult] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -22,8 +29,24 @@ export default function ExamEditor({ candidateName = "Candidate", examId = "exam
   const [pasteWarnings, setPasteWarnings] = useState(0);
 
   const sessionId = useRef(generateSessionId());
+  const monitoringURL =
+`http://192.168.29.204:5174/#monitor?sessionId=${sessionId.current}&studentName=${encodeURIComponent(candidateName)}&examCode=${examId}`;
   const keystrokeBuffer = useRef([]);
   const faceViolationsRef = useRef([]);
+  
+  // Initialize voice detector
+  const handleVoiceViolation = useCallback((type, timestamp, volume) => {
+
+  voiceViolationsRef.current.push({
+    type,
+    timestamp,
+    volume
+  });
+
+  setVoiceWarnings((prev) => prev + 1);
+
+  }, []);
+  
   
   // ── NEW: Paste tracking ──
   const pasteEventsRef = useRef([]);
@@ -152,6 +175,24 @@ export default function ExamEditor({ candidateName = "Candidate", examId = "exam
       });
       
       const data = await res.json();
+      let finalVerdict = data.finalVerdict;
+      if (
+        tabWarnings > 0 ||
+        faceViolationsRef.current.length > 0 ||
+        pasteWarnings > 0
+        ) {
+          finalVerdict = "SUSPICIOUS";
+        }
+
+      if (
+        tabWarnings >= 3 ||
+        faceViolationsRef.current.length >= 3 ||
+        pasteWarnings >= 2
+        ) {
+          finalVerdict = "FLAGGED";
+        }
+
+      data.finalVerdict = finalVerdict;
       setResult(data);
       setSubmitted(true);
     } catch (err) {
@@ -216,6 +257,28 @@ export default function ExamEditor({ candidateName = "Candidate", examId = "exam
           )}
         </div>
       </header>
+      <div
+        style={{
+          background: "#1e293b",
+          padding: 20,
+          margin: "16px auto",
+          borderRadius: 8,
+          textAlign: "center",
+          width: "fit-content",
+        }}
+      >
+        <h3>📱 Mobile Monitoring QR</h3>
+
+        <QRCodeCanvas
+          value={monitoringURL}
+          size={220}
+        />
+
+        <p style={{ fontSize: 12 }}>
+          Scan with mobile to connect monitoring
+        </p>
+      </div>
+      
 
       {/* Main two-column layout */}
       <div style={styles.main}>
@@ -245,6 +308,21 @@ export default function ExamEditor({ candidateName = "Candidate", examId = "exam
           <FaceMonitor
             onViolation={handleFaceViolation}
             onStatusChange={setCamStatus}
+          />
+          <div>
+            <p style={styles.monitorSubLabel}>
+              🎤 Microphone
+            </p>
+
+            <VoiceMonitor
+              onViolation={handleVoiceViolation}
+              enabled={true}
+            />
+          </div>
+          <MobileMonitor
+            sessionId={sessionId.current}
+            studentName={candidateName}
+            examCode={examId}
           />
 
           {/* Face violation log */}
@@ -323,8 +401,14 @@ const VIOLATION_COLORS = {
 
 const styles = {
   container: {
-    background: "#0f172a", minHeight: "100vh", color: "#e2e8f0",
-    fontFamily: "monospace", display: "flex", flexDirection: "column",
+    background: "#0f172a",
+    minHeight: "100vh",
+    height: "100vh",
+    color: "#e2e8f0",
+    fontFamily: "monospace",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
   },
   header: {
     display: "flex", alignItems: "center", gap: 16,
@@ -334,15 +418,26 @@ const styles = {
   meta: { color: "#64748b", fontSize: 13 },
   badges: { marginLeft: "auto", display: "flex", gap: 10 },
   warningBadge: { color: "#f59e0b", fontWeight: 600, fontSize: 13 },
-  main: { display: "flex", flex: 1, gap: 0 },
-  editorCol: { flex: 1, padding: "16px 24px", display: "flex", flexDirection: "column" },
+  main: { 
+    display: "flex",
+    flex: 1,
+    gap: 0,
+    overflow: "hidden",
+  },
+  editorCol: { 
+    flex: 1,
+    padding: "16px 24px",
+    display: "flex",
+    flexDirection: "column",
+    minWidth: "0",
+  },
   editor: {
     flex: 1, minHeight: 300,
     background: "#1e293b", color: "#e2e8f0",
     border: "1px solid #334155", borderRadius: 8,
     padding: 16, fontSize: 14, lineHeight: 1.6,
     resize: "vertical", outline: "none",
-    fontFamily: "monospace", boxSizing: "border-box",
+    fontFamily: "monospace", boxSizing: "border-box", flex: 1, minHeight: 500, overflow: "auto"
   },
   chartSection: { paddingTop: 12 },
   chartLabel: { fontSize: 11, color: "#475569", marginBottom: 6 },
